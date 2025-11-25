@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jiaqi Liang (梁嘉琪) - Academic Portfolio</title>
+    <!-- Load Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Load Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Outfit (Sans) for modern English/Titles, Noto Serif SC (Serif) for classical Chinese -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;800&family=Outfit:wght{300;500;700;900}&display=swap" rel="stylesheet">
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        let db, auth;
+        const inquiryCollectionPath = (appId) => `/artifacts/${appId}/public/data/inquiries`;
+        let currentLang = 'zh'; // Default language set to Chinese as per last request
+        let isDialogueOpen = false; // State for the floating dialogue window
+
+        window.firebaseInit = async function() {
+            const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+            if (Object.keys(firebaseConfig).length === 0) {
+                console.error("Firebase config is missing.");
+                return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                window.db = db;
+                window.appId = appId;
+                updateLanguageDisplay(); 
+
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+            }
+        }
+
+        const messages = {
+            zh: { 
+                required: '请填写内容。', 
+                submitting: '发送中...', 
+                success: '信入青鸟，待启新篇', 
+                failure: '发送失败。', 
+                button: '发送 / SEND', 
+                dialogue_title: '致信交流',
+                
+            },
+            en: { 
+                required: 'Content required.', 
+                submitting: 'Sending...', 
+                success: 'Message received. New chapter awaits.', 
+                failure: 'Failed to send.', 
+                button: 'SEND / 发送', 
+                dialogue_title: 'Send an Inquiry',
+            }
+        };
+
+        window.submitInquiry = async function() {
+            const nameInput = document.getElementById('inquiryName');
+            const contentInput = document.getElementById('inquiryContent');
+            const formContainer = document.getElementById('inquiryFormContainer');
+            const successDiv = document.getElementById('inquirySuccessMessage');
+            const submitBtn = document.getElementById('submitInquiryBtn');
+            const messageDiv = document.getElementById('inquiryMessage');
+            
+            const langStrings = messages[currentLang];
+
+            if (!contentInput.value.trim()) {
+                messageDiv.textContent = langStrings.required;
+                messageDiv.classList.add('text-amber-500'); // Highlight error with secondary color
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50');
+            submitBtn.textContent = langStrings.submitting;
+            messageDiv.textContent = '';
+            
+            try {
+                const userId = auth?.currentUser?.uid || 'anonymous';
+                await addDoc(collection(db, inquiryCollectionPath(window.appId)), {
+                    name: nameInput.value.trim() || 'Anonymous',
+                    content: contentInput.value.trim(),
+                    userId: userId,
+                    timestamp: serverTimestamp()
+                });
+                
+                // Success: Trigger animation
+                formContainer.classList.add('animate-envelope-out');
+
+                setTimeout(() => {
+                    formContainer.classList.add('hidden');
+                    formContainer.classList.remove('opacity-100'); // Ensure it hides
+
+                    successDiv.classList.remove('hidden');
+                    successDiv.classList.add('animate-fade-in');
+                    
+                    document.getElementById('successText').textContent = langStrings.success;
+
+                }, 800); // Wait for animation to finish
+                
+            } catch (e) {
+                console.error(e);
+                messageDiv.textContent = langStrings.failure;
+                messageDiv.classList.add('text-amber-500');
+            } finally {
+                if (formContainer.classList.contains('hidden')) {
+                     // Success state shown
+                } else {
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('opacity-50');
+                    submitBtn.textContent = langStrings.button;
+                }
+            }
+        }
+        
+        window.toggleLanguage = function() {
+            currentLang = currentLang === 'zh' ? 'en' : 'zh';
+            updateLanguageDisplay();
+            // Reset dialogue form visibility on language toggle for consistency
+            if (isDialogueOpen) {
+                resetDialogueForm();
+            }
+        }
+
+        window.toggleDialogue = function() {
+            isDialogueOpen = !isDialogueOpen;
+            const popover = document.getElementById('dialoguePopover');
+            const btn = document.getElementById('dialogueBtn');
+            
+            if (isDialogueOpen) {
+                popover.classList.remove('hidden');
+                popover.classList.add('animate-fade-in-up');
+                btn.classList.add('bg-[var(--accent-primary-dark)]'); // Darken button when active
+                resetDialogueForm();
+            } else {
+                popover.classList.add('hidden');
+                popover.classList.remove('animate-fade-in-up');
+                btn.classList.remove('bg-[var(--accent-primary-dark)]');
+            }
+        }
+
+        function resetDialogueForm() {
+            // Reset form UI elements to initial state
+            document.getElementById('inquiryFormContainer').classList.remove('hidden', 'animate-envelope-out');
+            document.getElementById('inquiryFormContainer').classList.add('opacity-100');
+            document.getElementById('inquirySuccessMessage').classList.add('hidden');
+            document.getElementById('inquiryMessage').textContent = '';
+            document.getElementById('inquiryName').value = '';
+            document.getElementById('inquiryContent').value = '';
+            document.getElementById('submitInquiryBtn').textContent = messages[currentLang].button;
+        }
+
+
+        window.toggleEvidence = function(id) {
+            const element = document.getElementById(`evidence-${id}`);
+            const btn = document.getElementById(`btn-evidence-${id}`);
+            const isHidden = element.classList.contains('hidden');
+
+            // Hide all other evidence containers
+            document.querySelectorAll('[id^="evidence-"]').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('[id^="btn-evidence-"]').forEach(b => {
+                b.classList.remove('bg-[var(--accent-primary)]', 'text-white');
+                b.classList.add('text-gray-500');
+            });
+
+
+            if (isHidden) {
+                // Show the current one
+                element.classList.remove('hidden');
+                btn.classList.add('bg-[var(--accent-primary)]', 'text-white');
+                btn.classList.remove('text-gray-500');
+            } else {
+                // If it was already open, hide it
+                element.classList.add('hidden');
+                btn.classList.remove('bg-[var(--accent-primary)]', 'text-white');
+                btn.classList.add('text-gray-500');
+            }
+        }
+
+        function updateLanguageDisplay() {
+            const langToggleBtn = document.getElementById('langToggleBtn');
+            langToggleBtn.innerHTML = currentLang === 'zh' ? 'EN' : '中';
+            
+            // Toggle visibility
+            document.querySelectorAll(`[data-lang]`).forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll(`[data-lang="${currentLang}"]`).forEach(el => el.classList.remove('hidden'));
+
+            // Update text inputs/buttons
+            document.getElementById('inquiryName').placeholder = currentLang === 'zh' ? '姓名 / Name' : 'Name';
+            document.getElementById('inquiryContent').placeholder = currentLang === 'zh' ? '留言 / Message' : 'Message';
+            document.getElementById('submitInquiryBtn').textContent = messages[currentLang].button;
+            document.getElementById('dialoguePopoverTitle').textContent = messages[currentLang].dialogue_title;
+        }
+
+        window.onload = function() { window.firebaseInit(); };
+    </script>
+    
+    <style>
+        /* Base Colors (Refined for Song Aesthetics: Ink, Paper, Celadon) */
+        :root {
+            --text-primary: #333333; /* Dark Ink */
+            --bg-light: #FAFAFA;     /* Very Light Off-White (Paper Texture Feel) */
+            --accent-primary: #466986; /* Deep Pioneer Blue / Muted Celadon Wash */
+            --accent-primary-dark: #375369; /* Darker tone for hover */
+            --accent-secondary: #D97706; /* Muted Gold/Amber */
+            --border-color: #E5E7EB; /* Subtle Border */
+        }
+
+        /* Enforce Full-Screen, No Vertical Scrolling on Body/HTML */
+        html, body {
+            height: 100%;
+            overflow: hidden; /* Prevent body scrolling */
+        }
+        body {
+            background-color: var(--bg-light); /* Off-White background */
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            display: flex; 
+        }
+
+        /* Font Definitions (Crucial for Style Switch - Maintaining Pioneer & Song Aesthetics) */
+        .font-song { 
+            font-family: 'Noto Serif SC', serif; 
+            line-height: 1.8; /* Generous Chinese line height (留白) */
+        }
+        .font-modern { 
+            font-family: 'Outfit', sans-serif; 
+            line-height: 1.6; /* Slightly generous modern line height */
+        }
+        
+        /* Utility Classes */
+        .shadow-song { 
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04); 
+        }
+
+        /* LEFT PANE: Song Aesthetic Border/Shadow - Creates a subtle lift */
+        .aside-style {
+            background-color: #FFFFFF; /* Pure white lift against off-white body */
+            border-right: 2px solid var(--border-color); /* Subtle divider */
+            box-shadow: 2px 0 10px -3px rgba(0, 0, 0, 0.05); /* Subtle inner shadow for paper lift */
+        }
+
+        /* Item Hover Effect (Cleaner, vertical line emphasis) */
+        .item-hover-style:hover {
+            border-left-color: var(--accent-primary) !important;
+            transform: translateX(0); /* Remove the slight translate X for a cleaner, vertical line effect */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Animation */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.6s ease-out forwards; }
+        
+        @keyframes fadeInUp { 
+            from { opacity: 0; transform: translateY(10px); } 
+            to { opacity: 1; transform: translateY(0); } 
+        }
+        .animate-fade-in-up { animation: fadeInUp 0.3s ease-out forwards; }
+        
+        /* Form Styling (Clean and Minimalist) */
+        .inquiry-block input, .inquiry-block textarea {
+            border: 1px solid var(--border-color); /* Light border */
+            border-radius: 4px; 
+            padding: 0.75rem;
+            transition: border-color 0.3s;
+        }
+        .inquiry-block input:focus, .inquiry-block textarea:focus { 
+            border-color: var(--accent-primary); 
+            box-shadow: 0 0 0 1px rgba(70, 105, 134, 0.5); /* Subtle focus ring */
+        }
+        .inquiry-block textarea { min-height: 120px; }
+        
+        /* Envelope Animation */
+        @keyframes envelopeDrop {
+            0% { transform: scale(1) translateY(0) rotate(0); opacity: 1; }
+            50% { transform: scale(0.9) translateY(-20px) rotate(-3deg); opacity: 0.7; }
+            100% { transform: scale(0.4) translateY(50px) rotate(10deg); opacity: 0; }
+        }
+        .animate-envelope-out { animation: envelopeDrop 0.8s ease-in-out forwards; }
+        
+        /* Full Height Content Area */
+        .content-area-wrapper {
+            /* Fix: Allows the content area to take up remaining height and scroll internally */
+            height: 100%; 
+            overflow-y: auto; 
+            padding-right: 1.5rem; /* Space for scrollbar */
+        }
+        /* Mobile Scroll Fix: Left pane should not enforce full height on mobile */
+        @media (max-width: 1023px) {
+            .lg\:h-full.overflow-y-auto {
+                height: auto;
+                overflow-y: visible;
+            }
+        }
+    </style>
+</head>
+<!-- Main container is flex-col for mobile, and flex-row for desktop -->
+<body class="flex flex-col lg:flex-row antialiased">
+    
+    <!-- Top Nav for Mobile View -->
+    <nav class="lg:hidden w-full px-6 py-4 flex justify-end items-center border-b border-gray-100 bg-white z-50">
+        <button id="langToggleBtn" onclick="toggleLanguage()" class="font-song text-lg hover:text-gray-700 transition-colors text-gray-400">EN</button>
+    </nav>
+    
+    <!-- LEFT PANE: Identity & Education (Fixed, 1/3 Width on Desktop) -->
+    <aside class="w-full lg:w-1/3 p-8 lg:p-12 aside-style lg:h-full overflow-y-auto shrink-0">
+        
+        <!-- Language Toggle for Desktop (Hidden on Mobile) -->
+        <div class="hidden lg:flex justify-end mb-8">
+            <button id="langToggleBtn" onclick="toggleLanguage()" class="font-song text-lg hover:text-gray-700 transition-colors text-gray-400">EN</button>
+        </div>
+
+        <!-- Photo & Basic Info -->
+        <div class="flex items-center space-x-6 mb-12">
+            <div class="relative shrink-0 w-28 h-28 rounded-full border-4 border-white shadow-song">
+                <!-- 个人照片占位符 -->
+                <img src="https://placehold.co/400x400/F5F5F5/466986?text=JL" alt="Jiaqi Liang" class="w-full h-full object-cover rounded-full">
+            </div>
+            <div>
+                <h1 class="text-3xl font-modern font-extrabold uppercase text-[var(--text-primary)] leading-tight title-style">
+                    <span data-lang="en">Jiaqi (Jucky) Liang</span>
+                    <span data-lang="zh" class="font-song">梁嘉琪</span>
+                </h1>
+                <p class="font-modern text-base tracking-widest text-gray-500 uppercase mt-2">
+                    <span data-lang="en">PhD Student</span>
+                    <span data-lang="zh">博士生</span>
+                </p>
+                
+                <!-- Icon Links - Now with highly recognizable SVGs -->
+                <div class="flex gap-4 text-gray-400 mt-4">
+                    <!-- Email Icon -->
+                    <a href="mailto:liangjiaqi_2024hk@163.com" class="hover:text-[var(--accent-primary)] transition-colors" title="Email: liangjiaqi_2024hk@163.com">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline>
+                        </svg>
+                    </a>
+                    <!-- Google Scholar Icon (Graduation Cap) -->
+                    <a href="#googlescholar" class="hover:text-[var(--accent-primary)] transition-colors" title="Google Scholar">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 14.7l6.5-3.8c.2-.1.5-.1.7 0l6.5 3.8"></path>
+                            <path d="M12 20v-8"></path>
+                            <path d="M22 8l-10-5L2 8l10 5 10-5z"></path>
+                            <path d="M4 14.7V20"></path>
+                            <path d="M20 14.7V20"></path>
+                        </svg>
+                    </a>
+                    <!-- LinkedIn Icon (Official 'in' shape) -->
+                    <a href="#linkedin" class="hover:text-[var(--accent-primary)] transition-colors" title="LinkedIn">
+                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M16 8a6 6 0 0 0-6 6v7h-4v-7a6 6 0 0 0 6-6h-3a6 6 0 0 0-6 6v7H2v-7a6 6 0 0 0 6-6h2v-3h4v3a6 6 0 0 0 6 6z"/>
+                            <circle cx="4" cy="4" r="2"/>
+                        </svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slogan/Mission (Content Continuity: Pioneer & Song Aesthetics) -->
+        <div class="mb-12">
+            <div class="text-xl leading-relaxed text-[var(--text-primary)]">
+                <span data-lang="en" class="font-modern font-light text-xl">Evidence-based inquiry. <span class="text-[var(--accent-primary)] font-semibold">Ink with data</span>, paint the future of education.</span>
+                <!-- Bio - User requested to keep this section open for later editing. -->
+                <span data-lang="zh" class="font-song text-2xl leading-9">格物致知，<span class="text-[var(--accent-primary)] font-medium">以数据为墨</span>，绘教育之未来。</span>
+            </div>
+        </div>
+        
+        <!-- Profile Summary (Fixed as requested) -->
+        <h2 class="font-modern text-base tracking-[0.2em] uppercase text-[var(--accent-primary)] mb-4">
+             <span data-lang="en">Profile Summary</span>
+             <span data-lang="zh" class="font-song text-lg">个人简介</span>
+        </h2>
+        <div class="text-gray-700 leading-relaxed text-justify mb-12">
+            <!-- Keeping the existing strong bio until the user provides a custom one, as they requested it to be blank "for now". -->
+            <p data-lang="en" class="font-modern text-base">
+                I specialize in the intersection of AI and Early Childhood Education (ECE) at the Australian Catholic University (ACU). My work advocates for evidence-based research to enhance transparency and equity in educational assessment and technology integration.
+            </p>
+            <p data-lang="zh" class="font-song text-lg leading-9">
+                我是<span class="border-b border-gray-400 border-dotted">澳大利亚凯斯林大学 (ACU)</span> 的博士研究员。我的研究致力于在<span class="border-b border-gray-400 border-dotted">人工智能 (AI)</span> 与<span class="border-b border-gray-400 border-dotted">幼儿教育 (ECE)</span> 之间，寻找理性的平衡点，以数据驱动教育公平。
+            </p>
+        </div>
+
+        <!-- Research Interests Tags (Updated based on user's new keywords) -->
+        <div class="mb-10">
+            <h3 class="font-modern text-base tracking-[0.2em] uppercase text-gray-500 mb-4">
+                <span data-lang="en">Research Areas</span>
+                <span data-lang="zh">研究领域</span>
+            </h3>
+            <div class="flex flex-wrap gap-3">
+                <span class="px-4 py-1 bg-white border border-gray-200 text-sm font-modern text-gray-700 rounded-full shadow-sm">AI x Early Childhood Education</span>
+                <span class="px-4 py-1 bg-white border border-gray-200 text-sm font-modern text-gray-700 rounded-full shadow-sm">Teacher Education</span>
+                <span class="px-4 py-1 bg-white border border-gray-200 text-sm font-modern text-gray-700 rounded-full shadow-sm">AI Education</span>
+            </div>
+        </div>
+
+        <!-- Education Background (Updated) -->
+        <h2 class="font-modern text-base tracking-[0.2em] uppercase text-[var(--accent-primary)] mb-6">
+             <span data-lang="en">Education Background</span>
+             <span data-lang="zh" class="font-song text-lg">教育背景</span>
+        </h2>
+        <div class="space-y-6">
+            <!-- School 1: ACU (PhD) -->
+            <div class="group border-l-4 border-gray-300 item-hover-style pl-4 py-3 pr-2 transition-all duration-300 hover:shadow-lg bg-white/90 rounded-sm">
+                <h4 class="font-modern text-sm tracking-widest text-[var(--accent-primary)] block mb-1">
+                    <span data-lang="zh">澳大利亚凯斯林大学 (ACU)</span><span data-lang="en">Australian Catholic University (ACU)</span>
+                </h4>
+                <p class="text-[var(--text-primary)] mb-1">
+                    <span data-lang="en" class="font-modern text-xl font-bold">Ph.D. Candidate (ECE/AI)</span>
+                    <span data-lang="zh" class="font-song text-2xl font-semibold">哲学博士 (Ph.D.) 候选人</span>
+                </p>
+                <p class="font-modern text-base text-gray-500">2022 - Present | Brisbane, Australia</p>
+            </div>
+            <!-- School 2: EdUHK (Master's) - UPDATED -->
+            <div class="group border-l-4 border-gray-300 item-hover-style pl-4 py-3 pr-2 transition-all duration-300 hover:shadow-lg bg-white/90 rounded-sm">
+                <h4 class="font-modern text-sm tracking-widest text-gray-700 uppercase block mb-1">
+                    <span data-lang="zh">香港教育大学 (EdUHK)</span><span data-lang="en">The Education University of Hong Kong (EdUHK)</span>
+                </h4>
+                <p class="text-[var(--text-primary)] mb-1">
+                    <span data-lang="en" class="font-modern text-xl font-bold">Master of Education (M.Ed.) <span class="text-sm font-medium text-[var(--accent-secondary)]">(Dean's Honor List)</span></span>
+                    <span data-lang="zh" class="font-song text-2xl font-semibold">教育硕士 (M.Ed.) <span class="text-lg font-medium text-[var(--accent-secondary)]">(院长嘉许名单)</span></span>
+                </p>
+                <p class="font-modern text-base text-gray-500">2020 - 2022 | Hong Kong SAR</p>
+            </div>
+             <!-- School 3: Shaanxi Xueqian Normal University (Bachelor's) - NEW -->
+             <div class="group border-l-4 border-gray-300 item-hover-style pl-4 py-3 pr-2 transition-all duration-300 hover:shadow-lg bg-white/90 rounded-sm">
+                <h4 class="font-modern text-sm tracking-widest text-gray-700 uppercase block mb-1">
+                    <span data-lang="zh">陕西学前师范学院</span><span data-lang="en">Shaanxi Xueqian Normal University</span>
+                </h4>
+                <p class="text-[var(--text-primary)] mb-1">
+                    <span data-lang="en" class="font-modern text-xl font-bold">Bachelor of Education (B.Ed.)</span>
+                    <span data-lang="zh" class="font-song text-2xl font-semibold">教育学学士 (B.Ed.)</span>
+                </p>
+                <p class="font-modern text-base text-gray-500">2016 - 2020 | Xi'an, China</p>
+            </div>
+        </div>
+
+    </aside>
+
+    <!-- RIGHT PANE: Research & Publications (Dynamic, 2/3 Width, Scrollable) -->
+    <main class="flex-grow w-full lg:w-2/3 flex flex-col p-8 lg:p-12 overflow-hidden">
+        
+        <!-- Section Title Bar -->
+        <div class="shrink-0 mb-10 border-b border-gray-200 pb-4">
+            <h2 class="font-modern text-2xl tracking-[0.2em] uppercase text-[var(--text-primary)]">
+                <span data-lang="en">Research & Publications</span>
+                <span data-lang="zh" class="font-song text-3xl font-bold">研究与出版</span>
+            </h2>
+        </div>
+        
+        <!-- CONTENT AREA (Flexible Height, Internal Scroll) -->
+        <!-- The fix for scrolling is in the 'content-area-wrapper' CSS class, which ensures it takes full remaining height and has overflow-y: auto. -->
+        <div class="flex-grow content-area-wrapper">
+
+            <!-- Content List -->
+            <div class="space-y-12">
+                
+                <!-- Publication Item 1 (Multimodality) -->
+                <div class="group border-l-4 border-gray-100 hover:border-[var(--accent-primary)] transition-all duration-300 pl-4 py-3 pr-2 hover:shadow-song bg-white/90 rounded-md">
+                    <span class="font-modern text-base font-bold text-[var(--accent-primary)] block mb-1">2024</span>
+                    <h4 class="text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
+                        <span data-lang="en" class="font-modern text-xl font-semibold">The Role of Multimodal Data in Enhancing Fairness in Early Childhood Assessment</span>
+                        <span data-lang="zh" class="font-song text-2xl">多模态数据在提升幼儿评估公平性中的作用</span>
+                    </h4>
+                    <p class="font-modern text-base tracking-wide text-gray-500 mb-3 uppercase">International Journal of Educational Data Mining</p>
+                    
+                    <p class="text-gray-700 mb-4 max-w-4xl">
+                        <span data-lang="en" class="font-modern text-base">Investigating the fusion of visual, acoustic, and behavioral data streams to mitigate cultural and linguistic bias in ECE assessment models.</span>
+                        <span data-lang="zh" class="font-song text-lg">研究如何融合视觉、声学和行为数据流，以减轻幼儿教育评估模型中的文化和语言偏见。</span>
+                    </p>
+                    
+                    <div class="flex flex-wrap gap-2 mt-4">
+                        <button id="btn-evidence-5" onclick="toggleEvidence(5)" class="text-gray-500 px-3 py-1 text-xs font-modern tracking-widest uppercase border border-gray-300 rounded-sm hover:text-white hover:bg-[var(--accent-primary)] transition-all">
+                            <span data-lang="en">View Evidence</span><span data-lang="zh">查看证据</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Evidence Hidden Content -->
+                    <div id="evidence-5" class="hidden mt-4 bg-white p-4 border-l-2 border-[var(--accent-primary)] shadow-song animate-fade-in">
+                        <ul class="space-y-1 font-modern text-sm text-gray-600">
+                            <li>↳ <span class="text-[var(--accent-primary)]">Status:</span> Under Review (Q1 Journal)</li>
+                            <li>↳ <span class="text-[var(--accent-primary)]">Code:</span> Private Repository</li>
+                        </ul>
+                    </div>
+                </div>
+
+
+                <!-- Publication Item 2 (AI Ethics) -->
+                <div class="group border-l-4 border-gray-100 hover:border-[var(--accent-primary)] transition-all duration-300 pl-4 py-3 pr-2 hover:shadow-song bg-white/90 rounded-md">
+                    <span class="font-modern text-base font-bold text-[var(--accent-primary)] block mb-1">2024</span>
+                    <h4 class="text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
+                        <span data-lang="en" class="font-modern text-xl font-semibold">Evaluating AI Ethics and Bias in Automated Child Development Assessment Tools</span>
+                        <span data-lang="zh" class="font-song text-2xl">自动化儿童发展评估工具中的人工智能伦理与偏见评估</span>
+                    </h4>
+                    <p class="font-modern text-base tracking-wide text-gray-500 mb-3 uppercase">Journal of ECE Technology</p>
+                    
+                    <p class="text-gray-700 mb-4 max-w-4xl">
+                        <span data-lang="en" class="font-modern text-base">Exploring implicit biases in AI diagnostic tools and proposing an equity-based algorithmic framework.</span>
+                        <span data-lang="zh" class="font-song text-lg">探索 AI 在早期诊断中的隐性偏见，提出基于公平性的算法修正框架。</span>
+                    </p>
+                    
+                    <div class="flex flex-wrap gap-2 mt-4">
+                        <button id="btn-evidence-1" onclick="toggleEvidence(1)" class="text-gray-500 px-3 py-1 text-xs font-modern tracking-widest uppercase border border-gray-300 rounded-sm hover:text-white hover:bg-[var(--accent-primary)] transition-all">
+                            <span data-lang="en">View Evidence</span><span data-lang="zh">查看证据</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Evidence Hidden Content -->
+                    <div id="evidence-1" class="hidden mt-4 bg-white p-4 border-l-2 border-[var(--accent-primary)] shadow-song animate-fade-in">
+                        <ul class="space-y-1 font-modern text-sm text-gray-600">
+                            <li>↳ <span class="text-[var(--accent-primary)]">Data:</span> GitHub Dataset (v2.0)</li>
+                            <li>↳ <span class="text-[var(--accent-primary)]">Ethics:</span> ACU Approval #2023-889</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Publication Item 3 (Teacher Perspectives) -->
+                <div class="group border-l-4 border-gray-100 hover:border-[var(--accent-primary)] transition-all duration-300 pl-4 py-3 pr-2 hover:shadow-song bg-white/90 rounded-md">
+                     <span class="font-modern text-base font-bold text-[var(--accent-primary)] block mb-1">2023</span>
+                        <h4 class="text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
+                        <span data-lang="en" class="font-modern text-xl font-semibold">Teacher Perspectives on AI-Driven Personalized Learning Pathways</span>
+                        <span data-lang="zh" class="font-song text-2xl">教师对幼儿园中人工智能驱动的个性化学习路径的看法</span>
+                    </h4>
+                    <p class="font-modern text-base tracking-wide text-gray-500 mb-3 uppercase">Symposium on AIED</p>
+
+                    <p class="text-gray-700 mb-4 max-w-4xl">
+                        <span data-lang="en" class="font-modern text-base">Based on in-depth interviews with 50 preschool teachers, analyzing the acceptance of AI tools in real-world settings.</span>
+                        <span data-lang="zh" class="font-song text-lg">基于对 50 位一线幼教的深度访谈，分析 AI 辅助工具在实际教学场景中的接受度。</span>
+                    </p>
+
+                    <div class="flex flex-wrap gap-2 mt-4">
+                        <button id="btn-evidence-2" onclick="toggleEvidence(2)" class="text-gray-500 px-3 py-1 text-xs font-modern tracking-widest uppercase border border-gray-300 rounded-sm hover:text-white hover:bg-[var(--accent-primary)] transition-all">
+                             <span data-lang="en">View Evidence</span><span data-lang="zh">查看证据</span>
+                        </button>
+                    </div>
+
+                    <!-- Evidence Hidden Content -->
+                     <div id="evidence-2" class="hidden mt-4 bg-white p-4 border-l-2 border-[var(--accent-primary)] shadow-song animate-fade-in">
+                        <ul class="space-y-1 font-modern text-sm text-gray-600">
+                            <li>↳ <span class="text-[var(--accent-primary)]">Ref:</span> SlideShare Deck</li>
+                            <li>↳ <span class="text-[var(--accent-primary)]">Data:</span> Interview Transcripts</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Publication Item 4 (Song Dynasty Aesthetics - Placeholder) -->
+                <div class="group border-l-4 border-gray-100 hover:border-[var(--accent-primary)] transition-all duration-300 pl-4 py-3 pr-2 hover:shadow-song bg-white/90 rounded-md">
+                     <span class="font-modern text-base font-bold text-[var(--accent-primary)] block mb-1">2022</span>
+                        <h4 class="text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
+                        <span data-lang="en" class="font-modern text-xl font-semibold">The Aesthetics of Subtlety: Decoding Rationality in Song Dynasty Painting and Ceramics</span>
+                        <span data-lang="zh" class="font-song text-2xl">微茫之美：宋代绘画与陶瓷中理性审美的解码</span>
+                    </h4>
+                    <p class="font-modern text-base tracking-wide text-gray-500 mb-3 uppercase">Master's Thesis (EdUHK)</p>
+
+                    <p class="text-gray-700 mb-4 max-w-4xl">
+                        <span data-lang="en" class="font-modern text-base">An interdisciplinary analysis of minimalism and philosophical concepts in Song Neo-Confucianism and their material expression.</span>
+                        <span data-lang="zh" class="font-song text-lg">对宋代理学中极简主义和哲学概念的跨学科分析及其物质表达。</span>
+                    </p>
+
+                    <div class="flex flex-wrap gap-2 mt-4">
+                        <button id="btn-evidence-3" onclick="toggleEvidence(3)" class="text-gray-500 px-3 py-1 text-xs font-modern tracking-widest uppercase border border-gray-300 rounded-sm hover:text-white hover:bg-[var(--accent-primary)] transition-all">
+                             <span data-lang="en">View Evidence</span><span data-lang="zh">查看证据</span>
+                        </button>
+                    </div>
+
+                    <!-- Evidence Hidden Content -->
+                     <div id="evidence-3" class="hidden mt-4 bg-white p-4 border-l-2 border-[var(--accent-primary)] shadow-song animate-fade-in">
+                        <ul class="space-y-1 font-modern text-sm text-gray-600">
+                            <li>↳ <span class="text-[var(--accent-primary)]">Thesis:</span> Full Text Available</li>
+                            <li>↳ <span class="text-[var(--accent-primary)]">Awards:</span> EdUHK Dean's Honor List (2022)</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Publication Item 5 (Placeholder for Future Project) -->
+                <div class="group border-l-4 border-gray-100 hover:border-[var(--accent-primary)] transition-all duration-300 pl-4 py-3 pr-2 hover:shadow-song bg-white/90 rounded-md">
+                     <span class="font-modern text-base font-bold text-[var(--accent-primary)] block mb-1">Ongoing</span>
+                        <h4 class="text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
+                        <span data-lang="en" class="font-modern text-xl font-semibold">Project Title Placeholder: Research and Publication Example</span>
+                        <span data-lang="zh" class="font-song text-2xl">未来项目标题占位符：研究与出版案例</span>
+                    </h4>
+                    <p class="font-modern text-base tracking-wide text-gray-500 mb-3 uppercase">Journal or Conference Name</p>
+
+                    <p class="text-gray-700 mb-4 max-w-4xl">
+                        <span data-lang="en" class="font-modern text-base">Brief description of the research project, focusing on methodology and key findings.</span>
+                        <span data-lang="zh" class="font-song text-lg">此部分用于更新您的最新研究项目或出版物。请遵循以下结构：<br/>**年份** | **标题 (中/英)** | **发表平台 (中/英)** | **研究摘要 (中/英)**</span>
+                    </p>
+
+                    <div class="flex flex-wrap gap-2 mt-4">
+                        <button id="btn-evidence-4" onclick="toggleEvidence(4)" class="text-gray-500 px-3 py-1 text-xs font-modern tracking-widest uppercase border border-gray-300 rounded-sm hover:text-white hover:bg-[var(--accent-primary)] transition-all">
+                             <span data-lang="en">View Evidence</span><span data-lang="zh">查看证据</span>
+                        </button>
+                    </div>
+
+                    <!-- Evidence Hidden Content -->
+                     <div id="evidence-4" class="hidden mt-4 bg-white p-4 border-l-2 border-[var(--accent-primary)] shadow-song animate-fade-in">
+                        <ul class="space-y-1 font-modern text-sm text-gray-600">
+                            <li>↳ <span class="text-[var(--accent-primary)]">Key:</span> Project Status (e.g., Data Collection, Draft)</li>
+                            <li>↳ <span class="text-[var(--accent-primary)]">Date:</span> Expected Submission Date</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                
+                <!-- Spacer for bottom scroll -->
+                <div class="h-16"></div>
+            </div>
+            
+        </div>
+
+    </main>
+    
+    <!-- FLOATING DIALOGUE BUTTON & POPOVER (致信交流) -->
+    <div class="fixed bottom-6 right-6 z-50">
+        
+        <!-- Dialogue Popover (The Inquiry Form) -->
+        <div id="dialoguePopover" class="hidden absolute bottom-16 right-0 max-w-sm w-80 bg-white border border-gray-200 rounded-lg shadow-song p-6 inquiry-block">
+             <h3 id="dialoguePopoverTitle" class="font-modern text-base tracking-wider uppercase text-gray-700 mb-4 border-b border-gray-100 pb-2">
+                 致信交流
+             </h3>
+             
+            <!-- Form Container -->
+            <div id="inquiryFormContainer" class="space-y-4 relative opacity-100 transition-opacity duration-300"> 
+                <input type="text" id="inquiryName" class="w-full font-modern text-base text-gray-700 placeholder-gray-400" placeholder="姓名 / Name">
+                <textarea id="inquiryContent" rows="3" class="w-full font-modern text-base text-gray-700 placeholder-gray-400 resize-none" placeholder="留言 / Message"></textarea>
+                <div id="inquiryMessage" class="text-sm text-center min-h-[1.5em] font-modern tracking-widest text-amber-500"></div>
+                
+                <div class="text-center pt-2">
+                    <button id="submitInquiryBtn" onclick="submitInquiry()" class="font-modern text-base tracking-[0.2em] bg-[var(--accent-primary)] text-white px-6 py-2 hover:bg-[var(--accent-primary-dark)] transition-all uppercase rounded-sm shadow-md">
+                        发送 / SEND
+                    </button>
+                </div>
+            </div>
+
+            <!-- Success Message -->
+            <div id="inquirySuccessMessage" class="hidden absolute inset-0 flex flex-col items-center justify-center p-8 bg-white/90 rounded-lg animate-fade-in">
+                <div class="text-5xl mb-4 text-[var(--accent-primary)]">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-10 h-10">
+                        <path d="M22 10v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h12l6 8z"></path>
+                        <path d="M22 10 16 2"></path>
+                        <path d="M6 14h4"></path>
+                        <path d="M15 10H4"></path>
+                    </svg>
+                </div>
+                <p id="successText" class="font-song text-xl text-[var(--accent-primary)] mb-4 text-center"></p>
+            </div>
+             <button onclick="toggleDialogue()" class="absolute top-2 right-2 text-gray-400 hover:text-gray-700">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+             </button>
+        </div>
+
+        <!-- Floating Button -->
+        <button id="dialogueBtn" onclick="toggleDialogue()" title="致信交流" class="relative w-14 h-14 bg-[var(--accent-primary)] text-white rounded-full flex items-center justify-center shadow-xl hover:bg-[var(--accent-primary-dark)] transition-colors duration-200 group">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
+                <path d="M22 15a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2a4 4 0 0 0 4 4h12a4 4 0 0 0 4-4v-2z"></path>
+                <path d="M15 11l-3-3-3 3"></path>
+                <path d="M12 11V6"></path>
+            </svg>
+            <!-- Tooltip (浮标鼠标悬浮展开字幕) -->
+            <span class="absolute right-full mr-4 px-3 py-1 bg-gray-800 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none font-song">
+                致信交流
+            </span>
+        </button>
+    </div>
+
+</body>
+</html>
